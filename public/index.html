@@ -1,1 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Twilio Voice Caller</title>
 
+<script src="twilio.min.js"></script>
+
+<style>
+:root {
+  --primary: #4f46e5;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --glass: rgba(255,255,255,0.08);
+  --border: rgba(255,255,255,0.15);
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #020617, #0f172a);
+  font-family: Inter, system-ui, sans-serif;
+  color: var(--text);
+}
+
+.card {
+  width: 380px;
+  padding: 28px;
+  border-radius: 18px;
+  background: var(--glass);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  box-shadow: 0 25px 60px rgba(0,0,0,.45);
+}
+
+h2 {
+  margin: 0;
+  text-align: center;
+  font-weight: 600;
+}
+
+.subtitle {
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0 18px;
+}
+
+.status {
+  padding: 12px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 14px;
+  background: rgba(255,255,255,0.06);
+  margin-bottom: 18px;
+}
+
+.status.ready {
+  background: rgba(34,197,94,.15);
+  border: 1px solid rgba(34,197,94,.35);
+  color: #bbf7d0;
+}
+
+.status.calling {
+  background: rgba(79,70,229,.18);
+  border: 1px solid rgba(79,70,229,.35);
+  color: #c7d2fe;
+}
+
+.status.error {
+  background: rgba(239,68,68,.18);
+  border: 1px solid rgba(239,68,68,.35);
+  color: #fecaca;
+}
+
+input {
+  width: 100%;
+  padding: 13px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,.25);
+  color: var(--text);
+  outline: none;
+}
+
+button {
+  width: 100%;
+  padding: 13px;
+  border-radius: 12px;
+  border: none;
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-call {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #022c22;
+}
+
+.btn-hangup {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: white;
+  display: none;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.controls button {
+  background: #334155;
+  color: #e5e7eb;
+}
+
+#timer {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+  display: none;
+}
+
+.footer {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h2>MUHOMMAD UMAR Caller</h2>
+  <div class="subtitle">Secure WebRTC Calling</div>
+
+  <div id="status" class="status">Initializing device…</div>
+
+  <input id="phone-number" type="text" value="+923103969159" />
+
+  <button id="btn-call" class="btn-call">📞 Call Now</button>
+  <button id="btn-hangup" class="btn-hangup">⛔ Hang Up</button>
+
+  <div class="controls">
+    <button id="btn-mute">🔇 Mute</button>
+    <button id="btn-speaker">🔊 Speaker</button>
+  </div>
+
+  <div id="timer">⏱ 00:00</div>
+
+  <div class="footer">
+    © 2025 Muhommad Umar — All Rights Reserved
+  </div>
+</div>
+
+<script>
+const statusDiv = document.getElementById('status');
+const btnCall = document.getElementById('btn-call');
+const btnHangup = document.getElementById('btn-hangup');
+const btnMute = document.getElementById('btn-mute');
+const btnSpeaker = document.getElementById('btn-speaker');
+const timerDiv = document.getElementById('timer');
+
+let device;
+let activeCall = null;
+let isMuted = false;
+let speakerOn = true;
+let seconds = 0;
+let callTimer = null;
+
+async function init() {
+  try {
+    const res = await fetch('/token');
+    const data = await res.json();
+
+    device = new Twilio.Device(data.token, {
+      logLevel: 1,
+      edge: ['ashburn', 'singapore']
+    });
+
+    device.on('registered', () => {
+      statusDiv.textContent = "Device Ready";
+      statusDiv.className = "status ready";
+    });
+
+    device.on('error', err => {
+      statusDiv.textContent = "Error: " + err.message;
+      statusDiv.className = "status error";
+    });
+
+    device.register();
+  } catch {
+    statusDiv.textContent = "Token fetch failed";
+    statusDiv.className = "status error";
+  }
+}
+
+btnCall.onclick = () => {
+  const number = document.getElementById('phone-number').value;
+  if (!device) return;
+
+  activeCall = device.connect({ params: { To: number } });
+
+  btnCall.style.display = "none";
+  btnHangup.style.display = "block";
+
+  statusDiv.textContent = "Calling " + number + "...";
+  statusDiv.className = "status calling";
+
+  startTimer();
+
+  activeCall.on('disconnect', resetUI);
+};
+
+btnHangup.onclick = () => {
+  if (device) device.disconnectAll();
+  resetUI();
+};
+
+btnMute.onclick = () => {
+  if (!activeCall) return;
+  isMuted = !isMuted;
+  activeCall.mute(isMuted);
+  btnMute.textContent = isMuted ? "🎙 Unmute" : "🔇 Mute";
+};
+
+btnSpeaker.onclick = () => {
+  if (!activeCall) return;
+  speakerOn = !speakerOn;
+
+  activeCall.getRemoteAudioTracks().forEach(track => {
+    track.mediaStreamTrack.enabled = speakerOn;
+  });
+
+  btnSpeaker.textContent = speakerOn ? "🔊 Speaker" : "🔈 Speaker Off";
+};
+
+function startTimer() {
+  seconds = 0;
+  timerDiv.style.display = "block";
+  callTimer = setInterval(() => {
+    seconds++;
+    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    timerDiv.textContent = `⏱ ${m}:${s}`;
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(callTimer);
+  timerDiv.style.display = "none";
+}
+
+function resetUI() {
+  btnCall.style.display = "block";
+  btnHangup.style.display = "none";
+  statusDiv.textContent = "Device Ready";
+  statusDiv.className = "status ready";
+
+  isMuted = false;
+  speakerOn = true;
+  btnMute.textContent = "🔇 Mute";
+  btnSpeaker.textContent = "🔊 Speaker";
+
+  stopTimer();
+}
+
+init();
+</script>
+
+</body>
+</html>
